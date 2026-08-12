@@ -40,6 +40,20 @@ class ClaimsAnalysis(BaseModel):
     saturated: List[ClaimSaturated]
     underrepresented: List[ClaimUnderrepresented]
 
+class BrandPositioningInsight(BaseModel):
+    brand: str
+    positioning_strategy: str = Field(
+        ..., 
+        description="Analyze if this brand positions its sunscreens purely as a pigmentation treatment vs basic sun protection based on the data."
+    )
+
+class ComboAnalysis(BaseModel):
+    combination: str
+    analysis: str = Field(
+        ..., 
+        description="Analyze if this specific ingredient + claim combination is saturated, rare, or a missing opportunity."
+    )
+
 class WhiteSpaceOpportunity(BaseModel):
     gap: str = Field(
         ..., 
@@ -62,6 +76,14 @@ class InsightsOutput(BaseModel):
     )
     ingredient_landscape: IngredientLandscape
     claims_analysis: ClaimsAnalysis
+    brand_positioning_analysis: List[BrandPositioningInsight] = Field(
+        ...,
+        description="Analysis of how specific brands balance pigmentation vs basic sun protection."
+    )
+    ingredient_claim_analysis: List[ComboAnalysis] = Field(
+        ...,
+        description="Analysis of the top ingredient + claim combinations."
+    )
     white_space_opportunities: List[WhiteSpaceOpportunity] = Field(
         ...,
         description="A minimum of 3 specific, data-backed product opportunities."

@@ -3,6 +3,7 @@ import json
 import os
 from collections import Counter
 from itertools import combinations
+import itertools
 
 def compute_top_ingredients(df_ing: pd.DataFrame, top_n: int = 20) -> list:
     deduped = df_ing.drop_duplicates(subset=['canonical_product_group_id'])
@@ -108,6 +109,65 @@ def compute_price_ingredient_crosstab(df: pd.DataFrame) -> list:
             })
     return crosstab
 
+def compute_ingredient_claim_combinations(df_ing: pd.DataFrame, top_n: int = 15) -> list:
+    """Calculates the co-occurrence of specific ingredients with specific claims (Step 5)."""
+    deduped = df_ing.drop_duplicates(subset=['canonical_product_group_id'])
+    total = len(deduped)
+    
+    # Explode ingredients first, drop nulls
+    exploded_ing = deduped.explode('ingredients_canonical').dropna(subset=['ingredients_canonical'])
+    # Explode claims on the already-exploded ingredients dataframe
+    exploded_both = exploded_ing.explode('claims_clean').dropna(subset=['claims_clean'])
+    
+    # Group by the pair and count
+    combo_counts = exploded_both.groupby(['ingredients_canonical', 'claims_clean']).size().reset_index(name='count')
+    combo_counts = combo_counts.sort_values(by='count', ascending=False).head(top_n)
+    
+    res = []
+    for _, row in combo_counts.iterrows():
+        res.append({
+            "ingredient": row['ingredients_canonical'],
+            "claim": row['claims_clean'],
+            "count": int(row['count']),
+            "pct": round(row['count'] / total, 3)
+        })
+    return res
+
+def compute_brand_positioning(df: pd.DataFrame) -> list:
+    """Analyzes brands positioning purely on pigmentation vs basic sun protection (Step 4)."""
+    deduped = df.drop_duplicates(subset=['canonical_product_group_id']).dropna(subset=['claims_clean', 'brand'])
+    exploded = deduped.explode('claims_clean')
+    
+    # Define basic vocabularies for classification
+    pigmentation_keywords = ['pigmentation', 'dark spot', 'brightening', 'even tone', 'melasma', 'glow', 'radiance']
+    spf_keywords = ['spf', 'uva', 'uvb', 'sun protection', 'broad spectrum', 'sunburn', 'sun block', 'pa+++']
+    
+    def is_pig(claim):
+        return any(k in str(claim).lower() for k in pigmentation_keywords)
+    def is_spf(claim):
+        return any(k in str(claim).lower() for k in spf_keywords)
+    
+    exploded['is_pig'] = exploded['claims_clean'].apply(is_pig)
+    exploded['is_spf'] = exploded['claims_clean'].apply(is_spf)
+    
+    brand_agg = exploded.groupby('brand').agg(
+        total_pig_claims=('is_pig', 'sum'),
+        total_spf_claims=('is_spf', 'sum')
+    ).reset_index()
+    
+    res = []
+    # Filter to brands that actually make claims to avoid noise
+    for _, row in brand_agg[(brand_agg['total_pig_claims'] > 0) | (brand_agg['total_spf_claims'] > 0)].iterrows():
+        res.append({
+            "brand": row['brand'],
+            "pigmentation_claim_count": int(row['total_pig_claims']),
+            "basic_spf_claim_count": int(row['total_spf_claims'])
+        })
+    
+    # Sort by pigmentation focus to highlight the pure pigmentation brands
+    res = sorted(res, key=lambda x: x['pigmentation_claim_count'], reverse=True)
+    return res[:15]
+
 def main():
     print("Starting Stage 3: Statistical Aggregation")
     parquet_path = "data/clean_products.parquet"
@@ -121,9 +181,7 @@ def main():
         "dataset_meta": {
             "total_products": df['canonical_product_group_id'].nunique(),
             "products_with_ingredient_data": df_ing['canonical_product_group_id'].nunique(),
-            # Deduplicate before counting platforms so the breakdown perfectly sums to total_products
             "platforms": {str(k): int(v) for k, v in df.drop_duplicates(subset=['canonical_product_group_id'])['platform'].value_counts().items()} if 'platform' in df.columns else {},
-            # Maintain the raw count purely for the transparency/audit trail
             "raw_scraped_rows": len(df)
         },
         "top_ingredients": compute_top_ingredients(df_ing),
@@ -131,11 +189,12 @@ def main():
         "rare_ingredients": compute_rare_ingredients(df_ing),
         "trend_note": "not computable: single time-point scrape",
         "top_claims": compute_top_claims(df),
-        # FIX 1: Lower saturation threshold to 15%
         "saturated_claim_pairs": compute_claim_saturation(df, min_pct=0.15), 
         "underrepresented_pigmentation_claims": compute_underrepresented_pigmentation_claims(df, floor_pct=0.10),
-        # FIX 2: Pass df_ing instead of df to scope strictly to known ingredient data
-        "price_segment_crosstab": compute_price_ingredient_crosstab(df_ing) 
+        "price_segment_crosstab": compute_price_ingredient_crosstab(df_ing),
+        # NEW FIELDS ADDED HERE:
+        "ingredient_claim_combinations": compute_ingredient_claim_combinations(df_ing),
+        "brand_positioning": compute_brand_positioning(df)
     }
 
     os.makedirs("data", exist_ok=True)
