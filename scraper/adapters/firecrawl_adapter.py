@@ -62,14 +62,37 @@ class FirecrawlAdapter(MarketplaceAdapter):
             return []
 
     def fetch_product(self, url: str) -> RawFetchResult:
+        # 1. Base actions (Scroll down to trigger lazy loading)
+        actions = [
+            {"type": "wait", "milliseconds": 1500},
+            {"type": "scroll", "direction": "down"}
+        ]
+        
+        # 2. Platform-specific clicks (Using your inspected selectors)
+        if self.platform == "nykaa":
+            actions.append({"type": "click", "selector": "h3.css-u4mhfc"})
+        elif self.platform == "purplle":
+            actions.append({"type": "click", "selector": "strong.font-bold"})
+            
+        # 3. Final wait to let the clicked accordion render, then scroll again
+        actions.extend([
+            {"type": "wait", "milliseconds": 2000},
+            {"type": "scroll", "direction": "down"},
+            {"type": "wait", "milliseconds": 1500}
+        ])
+
         try:
             payload = {
                 "url": url,
                 "formats": ["markdown", "json"],
                 "jsonOptions": {
                     "schema": FirecrawlProductSchema.model_json_schema()
-                }
+                },
+                "waitFor": 3000,
+                "timeout": 60000,
+                "actions": actions
             }
+            
             response = requests.post(self.api_url, json=payload, headers=self.headers, timeout=120)
             response.raise_for_status()
             

@@ -1,0 +1,10 @@
+[
+    "\\d+%\\s*[oO]ff",
+    "100% genuine.*",
+    "inclusive of all taxes",
+    "pack of \\d+",
+    "in[- ]vivo tested",
+    "spf\\s*\\d+\\+*",
+    "pa\\s*\\++",
+    "easy return policy"
+  ]
